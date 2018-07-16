@@ -1,217 +1,220 @@
 #!/bin/bash
-
 DEFAULT_CEPH_VERSION="luminous"
-
-# If executed with "bash -x" or "set -x" is added in the sourcecode
-# output is more verbose
-export PS4='+${BASH_SOURCE}:${LINENO}:${FUNCNAME[0]-*no-function*}: '
-
-function exec_cmd(){
-   local CMD="$1"
-   echo "+ $CMD"
-   eval "$CMD 2>&1"
-   local RET="$?"
-   if [ "$RET" != "0" ];then
-      echo "** ERROR: execution failed (returncode $RET)"
-      exit $RET
-   fi
-   return 0
-}
 
 # Usage: installRepo <ceph-version>
 function installRepo {
-  echo "Install the release.asc key"
-  exec_cmd "rpm --import 'https://download.ceph.com/keys/release.asc'"
   echo "Install new Repos"
-  exec_cmd "cp -n repos/ceph-$1.repo /etc/yum.repos.d/"
+  yum install -y centos-release-ceph-$1.noarch
 }
 
 # Usage: removeRepo <ceph-version>
 function removeRepo {
-  exec_cmd "rm -f /etc/yum.repos.d/ceph-$1.repo"
+  yum erase -y centos-release-ceph-$1.noarch
 }
 
 # Usage: setReposEnabled <repo filename> <section name> <0|1>
 function setReposEnabled {
   echo "Set $1 $2 enabled = $3"
-  exec_cmd "sed -ie \"/\[$2\]/,/^\[/s/enabled=[01]/enabled=$3/\" /etc/yum.repos.d/$1"
+  sed -ie "/\[$2\]/,/^\[/s/enabled=[01]/enabled=$3/" /etc/yum.repos.d/$1
 }
 
 # Usage: backupFile <path>
 function backupFile {
   echo "Backing Up file $1"
-  if [ -e "$1-orig" ]; then
-    echo "$1-orig already in place, not backing up!"
+  if [ -e $1.bkp ]; then
+    echo "$1.bkp already in place, not backing up!"
   else
-    exec_cmd "mv '$1' '$1-orig'"
+    mv $1 $1-orig
   fi
 }
 
 # Usage: restoreFile <path>
 function restoreFile {
   echo "Restore file $1"
-  if [ -e "$1-orig" ]; then
-    exec_cmd "mv '$1-orig' '$1'"
+  if [ -e $1.bkp ]; then
+    mv $1.bkp $1
   else
-    echo "WARN: No $1-orig in place, not restoring!"
+    echo "No $1-orig in place, not restoring!"
   fi
 }
 
 # Usage: copyFile <source path> <destination path>
 function copyFile {
-  exec_cmd "cp -a $1 $2"
-  exec_cmd "chmod +x $2"
+  cp $1 $2
+  chmod +x $2
 }
 
-function configFirewall {
-  backupFile "/etc/sysconfig/iptables"
-  if ( ! (iptables -C INPUT -p tcp --dport 6789 -j ACCEPT >/dev/null 2>&1));then
-     exec_cmd "iptables -A INPUT -p tcp --dport 6789 -j ACCEPT"
-     exec_cmd "service iptables save"
-  fi
-  if ( ! (iptables -A INPUT -m multiport -p tcp --dports 6800:7300 -j ACCEPT >/dev/null 2>&1));then
-     exec_cmd "iptables -A INPUT -m multiport -p tcp --dports 6800:7300 -j ACCEPT"
-     exec_cmd "service iptables save"
-  fi
+function configureFirewall {
+  iptables -A INPUT -p tcp --dport 6789 -j ACCEPT
+  iptables -A INPUT -m multiport -p tcp --dports 6800:7300 -j ACCEPT
+  service iptables save
 }
 
-function unconfigFirewall {
-  echo "INFO: not restoring /etc/sysconfig/iptables-orig to /etc/sysconfig/iptables"
-}
-
-function enableRBDSR {
-  echo "Add RBDSR plugin to whitelist of SM plugins in /etc/xapi.conf"
-  if (grep -q -P "^sm-plugins[ ]*=[ ]*.*rbd([ ].*$|)$" /etc/xapi.conf);then
-     echo "already activated"
-  else
-     exec_cmd "cp /etc/xapi.conf /etc/xapi.conf-orig"
-     exec_cmd "sed -ie 's/sm-plugins\(.*\)/& rbd/g' /etc/xapi.conf"
-  fi
-  grep "sm-plugins" /etc/xapi.conf
-}
-
-function disableRBDSR {
-  echo "Remove RBDSR plugin to whitelist of SM plugins in /etc/xapi.conf"
-  if (grep -q -P "^sm-plugins[ ]*=[ ]*.*rbd([ ].*$|)$" /etc/xapi.conf);then
-     exec_cmd "sed -ie 's/\(sm-plugins\)\(.*\)rbd\(.*\)/\1\2\3/g' /etc/xapi.conf"
-  else
-     echo "already deactivated"
-  fi
-}
-
-function installEpel {
-  echo "Install Required Packages"
-  exec_cmd "yum install -y epel-release yum-plugin-priorities.noarch"
+function unconfigureFirewall {
+  iptables -D INPUT -p tcp --dport 6789 -j ACCEPT
+  iptables -D INPUT -m multiport -p tcp --dports 6800:7300 -j ACCEPT
+  service iptables save
 }
 
 function installCeph {
-  echo "Install RBDSR depenencies"
-  exec_cmd "yum install -y snappy leveldb gdisk python-argparse gperftools-libs fuse fuse-libs"
-  echo "Install Ceph"
-  exec_cmd "yum install -y ceph-common rbd-fuse rbd-nbd"
+  echo "Install Ceph API"
+  yum install -y python-rbd
+}
+
+function uninstallCeph {
+  echo "Uninstall Ceph API"
+  yum erase -y python-rbd
 }
 
 function installFiles {
   echo "Install RBDSR Files"
-  copyFile "bins/waitdmmerging.sh"      "/usr/bin/waitdmmerging.sh"
-  copyFile "bins/ceph_plugin.py"        "/etc/xapi.d/plugins/ceph_plugin"
-  copyFile "bins/RBDSR.py"              "/opt/xensource/sm/RBDSR.py"
-  copyFile "bins/rbdsr_vhd.py"          "/opt/xensource/sm/rbdsr_vhd.py"
-  copyFile "bins/rbdsr_dmp.py"          "/opt/xensource/sm/rbdsr_dmp.py"
-  copyFile "bins/rbdsr_rbd.py"          "/opt/xensource/sm/rbdsr_rbd.py"
-  copyFile "bins/rbdsr_common.py"       "/opt/xensource/sm/rbdsr_common.py"
-  copyFile "bins/rbdsr_lock.py"         "/opt/xensource/sm/rbdsr_lock.py"
+  mkdir -p /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr
 
-  copyFile "bins/cleanup.py"            "/opt/xensource/sm/cleanup.py"
-  copyFile "bins/tap-ctl"               "/sbin/tap-ctl"
-  copyFile "bins/vhd-tool"              "/bin/vhd-tool"
-  copyFile "bins/sparse_dd"             "/usr/libexec/xapi/sparse_dd"
+  copyFile "volume/org.xen.xapi.storage.rbdsr/plugin.py" "/usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/plugin.py"
+  copyFile "volume/org.xen.xapi.storage.rbdsr/ceph_utils.py" "/usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/ceph_utils.py"
+  copyFile "volume/org.xen.xapi.storage.rbdsr/rbd_utils.py" "/usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/rbd_utils.py"
+  copyFile "volume/org.xen.xapi.storage.rbdsr/utils.py" "/usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/utils.py"
+  copyFile "volume/org.xen.xapi.storage.rbdsr/sr.py" "/usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/sr.py"
+  copyFile "volume/org.xen.xapi.storage.rbdsr/volume.py" "/usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/volume.py"
 
-  copyFile "bins/rbd2vhd.py"            "/bin/rbd2vhd"
+  unlink /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/Plugin.diagnostics 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/Plugin.Query 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/SR.probe 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/SR.attach 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/SR.create 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/SR.destroy 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/SR.detach 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/SR.ls 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/SR.stat 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/SR.set_description 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/SR.set_name 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/Volume.clone 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/Volume.create 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/Volume.destroy 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/Volume.resize 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/Volume.set 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/Volume.set_description 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/Volume.set_name 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/Volume.snapshot 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/Volume.stat 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/Volume.unset 1>/dev/null 2>&1
 
-  exec_cmd "ln -nf '/bin/rbd2vhd' '/bin/vhd2rbd'"
-  exec_cmd "ln -nf '/bin/rbd2vhd' '/bin/rbd2raw'"
-  exec_cmd "ln -nf '/bin/rbd2vhd' '/bin/rbd2nbd'"
-  exec_cmd "ln -snf '/opt/xensource/sm/RBDSR.py' '/opt/xensource/sm/RBDSR'"
+  ln -s plugin.py /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/Plugin.diagnostics
+  ln -s plugin.py /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/Plugin.Query
+  ln -s sr.py /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/SR.probe
+  ln -s sr.py /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/SR.attach
+  ln -s sr.py /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/SR.create
+  ln -s sr.py /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/SR.destroy
+  ln -s sr.py /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/SR.detach
+  ln -s sr.py /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/SR.ls
+  ln -s sr.py /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/SR.stat
+  ln -s sr.py /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/SR.set_description
+  ln -s sr.py /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/SR.set_name
+  ln -s volume.py /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/Volume.clone
+  ln -s volume.py /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/Volume.create
+  ln -s volume.py /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/Volume.destroy
+  ln -s volume.py /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/Volume.resize
+  ln -s volume.py /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/Volume.set
+  ln -s volume.py /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/Volume.set_description
+  ln -s volume.py /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/Volume.set_name
+  ln -s volume.py /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/Volume.snapshot
+  ln -s volume.py /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/Volume.stat
+  ln -s volume.py /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/Volume.unset
+
+  python -m compileall /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/plugin.py
+  python -m compileall /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/sr.py
+  python -m compileall /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/volume.py
+  python -m compileall /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/ceph_utils.py
+  python -m compileall /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/rbd_utils.py
+  python -m compileall /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/utils.py
+  python -O -m compileall /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/plugin.py
+  python -O -m compileall /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/sr.py
+  python -O -m compileall /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/volume.py
+  python -O -m compileall /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/ceph_utils.py
+  python -O -m compileall /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/rbd_utils.py
+  python -O -m compileall /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr/utils.py
+
+  copyFile "datapath/rbd/plugin.py" "/usr/libexec/xapi-storage-script/datapath/rbd/plugin.py"
+  copyFile "datapath/rbd/datapath.py" "/usr/libexec/xapi-storage-script/datapath/rbd/datapth.py"
+
+  unlink /usr/libexec/xapi-storage-script/datapath/rbd/ceph_utils.py 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/datapath/rbd/rbd_utils.py 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/datapath/rbd/utils.py 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/datapath/rbd/qmp.py 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/datapath/rbd/Datapath.activate 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/datapath/rbd/Datapath.attach 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/datapath/rbd/Datapath.close 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/datapath/rbd/Datapath.deactivate 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/datapath/rbd/Datapath.detach 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/datapath/rbd/Datapath.open 1>/dev/null 2>&1
+  unlink /usr/libexec/xapi-storage-script/datapath/rbd/Plugin.Query 1>/dev/null 2>&1
+
+  ln ../../volume/org.xen.xapi.storage.rbdsr/ceph_utils.py /usr/libexec/xapi-storage-script/datapath/rbd/ceph_utils.py
+  ln ../../volume/org.xen.xapi.storage.rbdsr/rbd_utils.py /usr/libexec/xapi-storage-script/datapath/rbd/rbd_utils.py
+  ln ../../volume/org.xen.xapi.storage.rbdsr/utils.py /usr/libexec/xapi-storage-script/datapath/rbd/utils.py
+  ln -s datapath.py /usr/libexec/xapi-storage-script/datapath/rbd/Datapath.activate
+  ln -s datapath.py /usr/libexec/xapi-storage-script/datapath/rbd/Datapath.attach
+  ln -s datapath.py /usr/libexec/xapi-storage-script/datapath/rbd/Datapath.close
+  ln -s datapath.py /usr/libexec/xapi-storage-script/datapath/rbd/Datapath.deactivate
+  ln -s datapath.py /usr/libexec/xapi-storage-script/datapath/rbd/Datapath.detach
+  ln -s datapath.py /usr/libexec/xapi-storage-script/datapath/rbd/Datapath.open
+  ln -s plugin.py /usr/libexec/xapi-storage-script/datapath/rbd/Plugin.Query
+  ln -s /usr/share/qemu/qmp/qmp.py /usr/libexec/xapi-storage-script/datapath/rbd/qmp.py
+
+  python -m compileall /usr/libexec/xapi-storage-script/datapath/rbd/plugin.py
+  python -m compileall /usr/libexec/xapi-storage-script/datapath/rbd/datapath.py
+  python -m compileall /usr/libexec/xapi-storage-script/datapath/rbd/ceph_utils.py
+  python -m compileall /usr/libexec/xapi-storage-script/datapath/rbd/rbd_utils.py
+  python -m compileall /usr/libexec/xapi-storage-script/datapath/rbd/utils.py
+  python -m compileall /usr/libexec/xapi-storage-script/datapath/rbd/qmp.py
+  python -O -m compileall /usr/libexec/xapi-storage-script/datapath/rbd/plugin.py
+  python -O -m compileall /usr/libexec/xapi-storage-script/datapath/rbd/datapath.py
+  python -O -m compileall /usr/libexec/xapi-storage-script/datapath/rbd/ceph_utils.py
+  python -O -m compileall /usr/libexec/xapi-storage-script/datapath/rbd/rbd_utils.py
+  python -O -m compileall /usr/libexec/xapi-storage-script/datapath/rbd/utils.py
+  python -O -m compileall /usr/libexec/xapi-storage-script/datapath/rbd/qmp.py
+
 }
 
 function removeFiles {
   echo "Removing RBDSR Files"
-  exec_cmd "rm -f '/usr/bin/waitdmmerging.sh'"
-  exec_cmd "rm -f '/etc/xapi.d/plugins/ceph_plugin'"
-  exec_cmd "rm -f '/opt/xensource/sm/RBDSR'"
-  exec_cmd "rm -f '/opt/xensource/sm/rbdsr_vhd.py'"
-  exec_cmd "rm -f '/opt/xensource/sm/rbdsr_dmp.py'"
-  exec_cmd "rm -f '/opt/xensource/sm/rbdsr_rbd.py'"
-  exec_cmd "rm -f '/opt/xensource/sm/rbdsr_common.py'"
-  exec_cmd "rm -f '/opt/xensource/sm/rbdsr_lock.py'"
-
-  exec_cmd "rm -f '/opt/xensource/sm/cleanup.py'"
-  exec_cmd "rm -f '/sbin/tap-ctl'"
-  exec_cmd "rm -f '/bin/vhd-tool'"
-  exec_cmd "rm -f '/usr/libexec/xapi/sparse_dd'"
-
-  exec_cmd "rm -f '/bin/rbd2vhd'"
-
-  exec_cmd "rm -f '/bin/vhd2rbd'"
-  exec_cmd "rm -f '/bin/rbd2raw'"
-  exec_cmd "rm -f '/bin/rbd2nbd'"
-}
-
+  rm -rf /usr/libexec/xapi-storage-script/volume/org.xen.xapi.storage.rbdsr
+  rm -rf /usr/libexec/xapi-storage-script/datapath/rbd
+  }
 
 function install {
-  installRepo "$1"
+  installRepo $1
   setReposEnabled "CentOS-Base.repo" "base" 1
   setReposEnabled "CentOS-Base.repo" "extras" 1
-  installEpel
-  setReposEnabled "epel.repo" "epel" 1
-  installCeph "$1"
+  installCeph
   setReposEnabled "CentOS-Base.repo" "base" 0
   setReposEnabled "CentOS-Base.repo" "extras" 0
-  setReposEnabled "epel.repo" "epel" 0
-
-  backupFile "/sbin/tap-ctl"
-  backupFile "/bin/vhd-tool"
-  backupFile "/usr/libexec/xapi/sparse_dd"
-  backupFile "/opt/xensource/sm/cleanup.py"
-
   installFiles
-
-  configFirewall
-  enableRBDSR
+  configureFirewall
 }
 
 function deinstall {
-  disableRBDSR
+  unconfigureFirewall
   removeFiles
-  restoreFile "/sbin/tap-ctl"
-  restoreFile "/bin/vhd-tool"
-  restoreFile "/usr/libexec/xapi/sparse_dd"
-  restoreFile "/opt/xensource/sm/cleanup.py"
+  uninstallCeph
   removeRepo $1
-  unconfigFirewall
 }
 
 case $1 in
     install)
         if [ -z "$2" ]; then
-            install "$DEFAULT_CEPH_VERSION"
+            install $DEFAULT_CEPH_VERSION
         else
-           if (echo "$2"|egrep -q "^jewel$|^kraken$|^luminous$"); then
+            if [ -z `echo $2|egrep "^jewel$|^kraken$|^luminous$"` ]; then
                 echo "[ERROR]: Unsupported Ceph version specified '$2'"
                 exit 1
             else
-                install "$2"
+                install $2
             fi
         fi
         ;;
-
-    installFiles)
-        installFiles
-        ;;
-
     deinstall)
-        CEPH_INSTALLED_VERSION="$(ls /etc/yum.repos.d/ | grep ceph | awk 'match($0, /ceph-(.*).repo/, a) {print a[1]}')"
+        CEPH_INSTALLED_VERSION=`ls /etc/yum.repos.d/ | awk 'match($0, /CentOS-Ceph-(.*).repo/, a) {print a[1]}' | awk '{print tolower($0)}'`
         if [ -z "$CEPH_INSTALLED_VERSION" ]; then
             echo "[ERROR]: Can't determine installed version of Ceph."
             echo "         RBDSR plugin is not installed or corrupted."
