@@ -48,10 +48,12 @@ $RECYCLE.BIN/
 Network Trash Folder
 Temporary Items
 .apdisk
-/.project
-/.idea
-/*.komodoproject
-/.komodotools
+.project
+.idea
+*.komodoproject
+.komodotools
 
-# vim
-*.swp
+datapath/rbd/ceph_utils.py
+datapath/rbd/qmp.py
+datapath/rbd/rbd_utils.py
+datapath/rbd/utils
