@@ -12,7 +12,7 @@ function exec_cmd(){
    eval "$CMD 2>&1"
    local RET="$?"
    if [ "$RET" != "0" ];then
-      echo "** ERROR: execution failed (returncode $RET)"
+      echo "** [ERROR]: execution failed (returncode $RET)"
       exit $RET
    fi
    return 0
@@ -76,7 +76,11 @@ function configFirewall {
 }
 
 function configureLVM {
-   sed -i '~s,#[[:space:]]*global_filter[[:space:]]*=[[:space:]]*\[ "a|.*/|" \],global_filter = [ "r|/dev/nbd.*|"\, "a|.*/|" ],' /etc/lvm/lvm.conf
+   sed -i '~s,\([[:space:]]*\)#\?[[:space:]]*global_filter[[:space:]]*=[[:space:]]*.*$,\1global_filter = [ "r|/dev/nbd.*|"\, "r|/dev/rbd.*|"\, "a|.*/|" ],' /etc/lvm/lvm.conf
+   if ( ! grep -q 'global_filter = \[ "r|/dev/nbd.*|", "r|/dev/rbd.*|", "a|.*/|" \]' /etc/lvm/lvm.conf );then
+     echo "[ERROR] LVM filter in /etc/lvm/lvm.conf not present"
+     exit 1
+   fi
 }
 
 function unconfigFirewall {
