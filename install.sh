@@ -76,8 +76,8 @@ function configFirewall {
 }
 
 function configureLVM {
-   sed -i '~s,\([[:space:]]*\)#\?[[:space:]]*global_filter[[:space:]]*=[[:space:]]*.*$,\1global_filter = [ "r|/dev/nbd.*|"\, "r|/dev/rbd.*|"\, "a|.*/|" ],' /etc/lvm/lvm.conf
-   if ( ! grep -q 'global_filter = \[ "r|/dev/nbd.*|", "r|/dev/rbd.*|", "a|.*/|" \]' /etc/lvm/lvm.conf );then
+   sed -i '~s,\([[:space:]]*\)#\?[[:space:]]*global_filter[[:space:]]*=[[:space:]]*.*$,\1global_filter = [ "r|/dev/nbd.*|"\, "r|/dev/rbd.*|" ],' /etc/lvm/lvm.conf
+   if ( ! grep -q 'global_filter = \[ "r|/dev/nbd.*|", "r|/dev/rbd.*|" \]' /etc/lvm/lvm.conf );then
      echo "[ERROR] LVM filter in /etc/lvm/lvm.conf not present"
      exit 1
    fi
