@@ -75,6 +75,10 @@ function configFirewall {
   fi
 }
 
+function configureLVM {
+   sed -i '~s,#[[:space:]]*global_filter[[:space:]]*=[[:space:]]*\[ "a|.*/|" \],global_filter = [ "r|/dev/nbd.*|"\, "a|.*/|" ],' /etc/lvm/lvm.conf
+}
+
 function unconfigFirewall {
   echo "INFO: not restoring /etc/sysconfig/iptables-orig to /etc/sysconfig/iptables"
 }
@@ -174,11 +178,14 @@ function install {
   backupFile "/bin/vhd-tool"
   backupFile "/usr/libexec/xapi/sparse_dd"
   backupFile "/opt/xensource/sm/cleanup.py"
+  backupFile "/etc/lvm/lvm.conf"
 
   installFiles
-
   configFirewall
+  configureLVM
   enableRBDSR
+
+  echo "INFO: Reboot xen server before using it"
 }
 
 function deinstall {
@@ -188,6 +195,8 @@ function deinstall {
   restoreFile "/bin/vhd-tool"
   restoreFile "/usr/libexec/xapi/sparse_dd"
   restoreFile "/opt/xensource/sm/cleanup.py"
+  restoreFile "/etc/lvm/lvm.conf"
+
   removeRepo $1
   unconfigFirewall
 }
