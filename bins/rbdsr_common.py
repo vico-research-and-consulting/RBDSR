@@ -1214,14 +1214,14 @@ class CVDI(VDI.VDI):
         :return:
         """
         if VERBOSE:
-            util.SMlog("rbdsr_common.CVDI._delete_rbd: vdi_uuid=%s" % vdi_uuid)
-        # TODO: Checked
-        vdi_name = "%s%s" % (self.sr.VDI_PREFIX, vdi_uuid)
-        fuse_vdi_path = "%s/%s%s" % (self.sr.DEV_ROOT, self.sr.VDI_PREFIX, vdi_uuid)
+            util.SMlog("rbdsr_common.CVDI._delete_rbd: sr_mode=%s, vdi_uuid=%s" % (self.sr.mode, vdi_uuid))
+
         if self.sr.mode in ["kernel", "nbd]"]:
+            vdi_name = "%s%s" % (self.sr.VDI_PREFIX, vdi_uuid)
             util.pread2(["rbd", "snap", "purge", "%s/%s" % (self.sr.CEPH_POOL_NAME, vdi_name)])
             util.pread2(["rbd", "rm", vdi_name, "--pool", self.sr.CEPH_POOL_NAME, "--name", self.sr.CEPH_USER])
         elif self.sr.mode == "fuse":
+            fuse_vdi_path = "%s/%s%s" % (self.sr.DEV_ROOT, self.sr.VDI_PREFIX, vdi_uuid)
             util.pread2(["rm", "-f", fuse_vdi_path])
 
     def _delete_snap(self, vdi_uuid, snap_uuid):
