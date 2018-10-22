@@ -1216,7 +1216,7 @@ class CVDI(VDI.VDI):
         if VERBOSE:
             util.SMlog("rbdsr_common.CVDI._delete_rbd: sr_mode=%s, vdi_uuid=%s" % (self.sr.mode, vdi_uuid))
 
-        if self.sr.mode in ["kernel", "nbd]"]:
+        if self.sr.mode in ["kernel", "nbd"]:
             vdi_name = "%s%s" % (self.sr.VDI_PREFIX, vdi_uuid)
             util.pread2(["rbd", "snap", "purge", "%s/%s" % (self.sr.CEPH_POOL_NAME, vdi_name)])
             util.pread2(["rbd", "rm", vdi_name, "--pool", self.sr.CEPH_POOL_NAME, "--name", self.sr.CEPH_USER])
