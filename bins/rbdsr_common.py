@@ -1100,7 +1100,7 @@ class CVDI(VDI.VDI):
 
         def __call_plugin__():
             instance_ref_count = self.sr._get_instance_ref_count(self.sr.uuid, vdi_uuid, host_uuid)
-            if instance_ref_count == 1 or norefcount:
+            if instance_ref_count >= 1 or norefcount:
                 try:
                     if devlinks:
                         self._call_plugin('unmap', args, 'ceph_plugin', host_uuid)
@@ -1113,7 +1113,7 @@ class CVDI(VDI.VDI):
                 except Exception as e:
                     raise xs_errors.XenError('VDIUnavailable', opterr='Failed to unmap RBD for %s (%s)' % (vdi_uuid, str(e)))
             else:
-                util.SMlog("rbdsr_common.CVDI._unmap_rbd: instance_ref_count is not 1: %s, and norefcount is False, not unmapping!"
+                util.SMlog("rbdsr_common.CVDI._unmap_rbd: instance_ref_count is not >1: %s, and norefcount is False, not unmapping!"
                            % instance_ref_count)
 
             if not norefcount:
