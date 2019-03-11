@@ -141,10 +141,12 @@ function installFiles {
   exec_cmd "ln -nf '/bin/rbd2vhd' '/bin/rbd2raw'"
   exec_cmd "ln -nf '/bin/rbd2vhd' '/bin/rbd2nbd'"
   exec_cmd "ln -snf '/opt/xensource/sm/RBDSR.py' '/opt/xensource/sm/RBDSR'"
+  exec_cmd "rm /opt/xensource/sm/*.pyc"
 }
 
 function removeFiles {
   echo "Removing RBDSR Files"
+  exec_cmd "rm /opt/xensource/sm/*.pyc"
   exec_cmd "rm -f '/usr/bin/waitdmmerging.sh'"
   exec_cmd "rm -f '/etc/xapi.d/plugins/ceph_plugin'"
   exec_cmd "rm -f '/opt/xensource/sm/RBDSR'"
