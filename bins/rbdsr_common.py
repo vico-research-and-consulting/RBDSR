@@ -1100,21 +1100,21 @@ class CVDI(VDI.VDI):
 
         def __call_plugin__():
             instance_ref_count = self.sr._get_instance_ref_count(self.sr.uuid, vdi_uuid, host_uuid)
-            if instance_ref_count >= 1 or norefcount:
-                try:
-                    if devlinks:
-                        self._call_plugin('unmap', args, 'ceph_plugin', host_uuid)
-                    else:
-                        self._call_plugin('_unmap', args, 'ceph_plugin', host_uuid)
+            try:
+                if devlinks:
+                    self._call_plugin('unmap', args, 'ceph_plugin', host_uuid)
+                else:
+                    self._call_plugin('_unmap', args, 'ceph_plugin', host_uuid)
 
-                    if 'attached' in sm_config and self.exist:
-                        self.session.xenapi.VDI.remove_from_sm_config(vdi_ref, 'attached')
+                if 'attached' in sm_config and self.exist:
+                    self.session.xenapi.VDI.remove_from_sm_config(vdi_ref, 'attached')
 
-                except Exception as e:
+            except Exception as e:
+                if instance_ref_count > 0:
+                    util.SMlog('__call_plugin__ unmap FAILED: %s' % str(e))
                     raise xs_errors.XenError('VDIUnavailable', opterr='Failed to unmap RBD for %s (%s)' % (vdi_uuid, str(e)))
-            else:
-                util.SMlog("rbdsr_common.CVDI._unmap_rbd: instance_ref_count is not >1: %s, and norefcount is False, not unmapping!"
-                           % instance_ref_count)
+                else:
+                    util.SMlog('__call_plugin__ unmap failed, but got no ref_count ... continue: %s' % str(e))
 
             if not norefcount:
                 self.sr._free_dev_instance(self.sr.uuid, vdi_uuid, host_uuid)
@@ -2839,18 +2839,22 @@ class CVDI_GC(cleanup.VDI):
                 "size": str(size)}
 
         def __call_plugin__():
-            if self.sr._get_instance_ref_count(self.sr.uuid, vdi_uuid, host_uuid) == 1 or norefcount:
-                try:
-                    if devlinks:
-                        self._call_plugin('unmap', args, 'ceph_plugin', host_uuid)
-                    else:
-                        self._call_plugin('_unmap', args, 'ceph_plugin', host_uuid)
+            ref_count = self.sr._get_instance_ref_count(self.sr.uuid, vdi_uuid, host_uuid)
+            try:
+                if devlinks:
+                    self._call_plugin('unmap', args, 'ceph_plugin', host_uuid)
+                else:
+                    self._call_plugin('_unmap', args, 'ceph_plugin', host_uuid)
 
-                    if 'attached' in sm_config and self.exist:
-                        self.sr.xapi.session.xenapi.VDI.remove_from_sm_config(vdi_ref, 'attached')
+                if 'attached' in sm_config and self.exist:
+                    self.sr.xapi.session.xenapi.VDI.remove_from_sm_config(vdi_ref, 'attached')
 
-                except Exception as e:
+            except Exception as e:
+                if ref_count > 0:
+                    util.SMlog('GC __call_plugin__ unmap FAILED: %s' % str(e))
                     raise xs_errors.XenError('VDIUnavailable', opterr='Failed to unmap RBD for %s (%s)' % (vdi_uuid, str(e)))
+                else:
+                    util.SMlog('GC __call_plugin__ unmap failed, but got no ref_count ... continue: %s' % str(e))
 
             if not norefcount:
                 self.sr._free_dev_instance(self.sr.uuid, vdi_uuid, host_uuid)
